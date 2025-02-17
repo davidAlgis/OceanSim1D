@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 
 class OceanWaves:
@@ -6,43 +8,61 @@ class OceanWaves:
     def __init__(self, N, L, wind_speed, fetch, water_depth):
         """
         Initialize the 1D ocean wave simulation parameters.
+        
+        Parameters:
+            N (int): Number of sample points in the 1D grid.
+            L (float): Domain length.
+            wind_speed (float): Wind speed in m/s.
+            fetch (float): Fetch in meters.
+            water_depth (float): Water depth (assumed very large for deep water).
         """
         self.N = N
         self.L = L
         self.wind_speed = wind_speed
         self.fetch = fetch
-        self.water_depth = water_depth  # deep water (assumed very high)
+        self.water_depth = water_depth  # Deep water assumption
 
         self.g = 9.80665  # gravitational acceleration
 
-        # Create a 1D spatial grid
+        # Create a 1D spatial grid (parameter space)
         self.x = np.linspace(0, L, N)
 
-        # Placeholders for simulation data
-        self.water_height = np.zeros(N)
-        self.displacement = np.zeros(N)
-        self.derivative = np.zeros(N)
-        self.velocity_slice = np.zeros(N)
+        # Compute wave numbers (using np.fft.fftfreq) and angular frequencies.
+        self.k = np.fft.fftfreq(N, d=L / N) * 2 * np.pi
+        self.omega = np.sqrt(self.g * np.abs(self.k))
 
-        # Compute Fourier-space initial amplitude h0 (for each k)
+        # For accessing negative wave numbers via index (mirror symmetry)
+        self.mirror = np.array([(-i) % N for i in range(N)])
+
+        # Placeholders for real-space fields
+        self.water_height = np.zeros(N)  # h(x, t) from IFFT
+        self.displacement = np.zeros(N)  # horizontal displacement D(x, t)
+        self.derivative = np.zeros(N)  # spatial derivative of h
+
+        # Precompute the Fourier-space initial amplitudes h0 for each mode.
         self.h0 = self.compute_h0()
 
     def compute_h0(self):
         """
-        Compute the Fourier-space amplitude h0 (i.e., \tilde{h}_0) for each wave number
-        using the Phillips spectrum with the JONSWAP frequency spectrum and a uniform directional spectrum.
-        Returns:
-            h0 (np.ndarray): Complex array of size N containing the initial Fourier amplitudes.
+        Compute the initial Fourier-space amplitude h0(k) using the JONSWAP frequency spectrum
+        (with a uniform directional spectrum, i.e., δ=0) as described in the article.
+        
+        In 1D, we define:
+            h0(k) = xi * sqrt((g * S(omega)) / (L * |k| * omega))
+        where:
+            - xi is a complex Gaussian random variable,
+            - omega = sqrt(g * |k|),
+            - S(omega) = (alpha * g^2 / omega^5) exp[-(5/4)(omega_p/omega)^4] gamma^r,
+              with r = exp[-((omega-omega_p)^2)/(2*sigma^2*omega_p^2)]
+            - alpha = 0.076 * ((U^2)/(F*g))^0.22,
+            - omega_p = 22*g^2/(U*F),
+            - gamma = 3.3,
+            - sigma = 0.07 if omega<=omega_p else 0.09.
         """
         N = self.N
         L = self.L
         g = self.g
-
-        # Wave numbers: using np.fft.fftfreq gives frequencies in cycles per unit length.
-        # Multiply by 2*pi to obtain angular wave numbers.
-        k = np.fft.fftfreq(N, d=L / N) * 2 * np.pi  # k can be negative!
-
-        # Preallocate h0 array
+        k = self.k
         h0 = np.zeros(N, dtype=complex)
 
         # JONSWAP parameters
@@ -52,7 +72,6 @@ class OceanWaves:
         omega_p = 22 * (g**2) / (U * F)
         gamma = 3.3
 
-        # Loop over each mode; vectorized operations can be used but here clarity is key.
         for i in range(N):
             k_val = k[i]
             k_abs = np.abs(k_val)
@@ -60,80 +79,127 @@ class OceanWaves:
                 h0[i] = 0.0
                 continue
 
-            # Compute dispersion relation omega = sqrt(g*|k|)
+            # Compute dispersion: omega = sqrt(g*|k|)
             omega = np.sqrt(g * k_abs)
-
-            # Choose sigma based on omega compared to omega_p
             sigma = 0.07 if omega <= omega_p else 0.09
-
-            # Compute the exponent term r
             r_exp = np.exp(-((omega - omega_p)**2) / (2 * (sigma**2) *
                                                       (omega_p**2)))
-
-            # JONSWAP frequency spectrum S(omega)
             S_omega = (alpha_js * g**2 / omega**5) * np.exp(
                 -5 / 4 * (omega_p / omega)**4) * (gamma**r_exp)
 
-            # dω/dk = g/(2ω)
-            domega_dk = g / (2 * omega)
+            # Note: dω/dk = g/(2ω) is absorbed in the derivation.
+            amplitude = np.sqrt((g * S_omega) / (L * k_abs * omega))
 
-            # Directional spectrum: assuming uniform (δ=0) => D(omega)=1/(2π)
-            D_omega = 1 / (2 * np.pi)
-
-            # Combining the factors: note that the formula simplifies to:
-            # h0 = xi * sqrt( (g * S(omega)) / (L * k_abs * omega) )
-            amplitude = np.sqrt((g * S_omega * domega_dk *
-                                 (4 * np.pi / (L * k_abs)) * D_omega))
-            # Simplification: (4π/(L*k))*D_omega = (4π/(L*k))*(1/(2π)) = 2/(L*k)
-            # and then multiplied by domega_dk = g/(2ω) gives:
-            # amplitude = sqrt( (g * S(omega))/(L * k_abs * ω) )
-            # We'll use the full expression for clarity.
-
-            # Sample a complex Gaussian random variable (mean 0, std 1)
+            # Sample a complex Gaussian variable (mean 0, std dev 1)
             xi = np.random.normal(0, 1) + 1j * np.random.normal(0, 1)
-
             h0[i] = xi * amplitude
 
         return h0
 
-    # (Other methods: init_water_height, init_displacement, etc.)
-    def init_water_height(self):
-        # TODO: Compute initial water height using Fourier synthesis with self.h0.
-        pass
-
-    def init_displacement(self):
-        # TODO: Compute horizontal displacement from Fourier modes.
-        pass
-
-    def init_derivative(self):
-        # TODO: Compute spatial derivative of the water height.
-        pass
-
-    def init_velocity_slice(self):
-        # TODO: Compute water velocity slice at a chosen depth.
-        pass
-
     def update(self, t):
-        # TODO: Update simulation state at time t.
-        pass
+        """
+        Update the simulation state at time t.
+        
+        Computes the time-dependent Fourier coefficients:
+            h̃(k,t) = h0(k)e^(iωt) + h0*(-k)e^(-iωt)
+        and then uses IFFT to compute:
+            - water_height h(x,t)
+            - horizontal displacement D(x,t) [computed as i*sign(k)*h̃(k,t)]
+            - derivative (∂h/∂x)(x,t)
+        """
+        N = self.N
+        phase_plus = np.exp(1j * self.omega * t)
+        phase_minus = np.exp(-1j * self.omega * t)
 
-    def run_simulation(self, total_time, dt):
-        t = 0.0
-        while t < total_time:
-            self.update(t)
-            t += dt
+        # h̃(k,t) (using mirror symmetry to obtain h0(-k))
+        h_tilde = self.h0 * phase_plus + np.conjugate(
+            self.h0[self.mirror]) * phase_minus
+
+        # Horizontal displacement in Fourier space: D̃(k,t) = i * sign(k) * h̃(k,t)
+        sign_k = np.sign(self.k)
+        D_tilde = 1j * sign_k * h_tilde
+
+        # Fourier-space derivative: i * k * h̃(k,t)
+        derivative_hat = 1j * self.k * h_tilde
+
+        # Inverse FFT to return to real space.
+        self.water_height = np.real(np.fft.ifft(h_tilde))
+        self.displacement = np.real(np.fft.ifft(D_tilde))
+        self.derivative = np.real(np.fft.ifft(derivative_hat))
+
+    def get_real_water_height(self, X, N_iter=4):
+        """
+        Retrieve the 'real' water height at fixed world positions X.
+        
+        The simulated water surface is given parametrically as:
+            ( x + D(x,t), h(x,t) )
+        so to find the water height at a given world position X, we iteratively solve:
+            x* = X - D(x*, t)
+        and then h_real(X,t) = h(x*, t).
+        
+        Parameters:
+            X (np.ndarray): Array of fixed world coordinates.
+            N_iter (int): Number of iterations for convergence.
+            
+        Returns:
+            h_real (np.ndarray): Water height evaluated at positions X.
+        """
+        # Initial guess: use X as the parameter value.
+        x_guess = X.copy()
+        for _ in range(N_iter):
+            # Interpolate the horizontal displacement at x_guess.
+            D_guess = np.interp(x_guess, self.x, self.displacement)
+            # Update the guess: x* = X - D(x*, t)
+            x_guess = X - D_guess
+        # Finally, interpolate the water height using the converged parameter values.
+        h_real = np.interp(x_guess, self.x, self.water_height)
+        return h_real
+
+
+def animate_wave():
+    # Simulation parameters
+    N = 4096
+    L = 1000.0
+    wind_speed = 20.0
+    fetch = 10000.0
+    water_depth = 1e6  # deep water
+
+    # Create an OceanWaves instance.
+    ocean = OceanWaves(N, L, wind_speed, fetch, water_depth)
+
+    # Set up the Matplotlib figure.
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.set_xlim(0, L)
+    ax.set_ylim(-5, 5)
+    ax.set_xlabel("x")
+    ax.set_ylabel("Water Height")
+    title = ax.set_title("Ocean Waves at t = 0.00 s")
+    line, = ax.plot([], [], lw=2, color="b")
+
+    # Define a set of fixed world coordinates (for which we want the real water height).
+    X_world = np.linspace(0, L, N)
+
+    def init():
+        line.set_data([], [])
+        return line, title
+
+    def update_frame(frame):
+        t = frame / 10.0  # Scale time for visualization
+        ocean.update(t)
+        # Compute the real water height at world positions X_world.
+        h_real = ocean.get_real_water_height(X_world, N_iter=4)
+        line.set_data(X_world, h_real)
+        title.set_text(f"Ocean Waves at t = {t:.2f} s")
+        return line, title
+
+    ani = animation.FuncAnimation(fig,
+                                  update_frame,
+                                  frames=200,
+                                  init_func=init,
+                                  blit=True,
+                                  interval=50)
+    plt.show()
 
 
 if __name__ == '__main__':
-    # Example parameters
-    N = 256  # number of grid points
-    L = 100.0  # domain length in meters
-    wind_speed = 20.0  # m/s
-    fetch = 1000.0  # fetch in meters
-    water_depth = 1e6  # deep water approximation
-
-    ocean = OceanWaves(N, L, wind_speed, fetch, water_depth)
-
-    # For demonstration: print first few h0 values
-    print("First few h0 Fourier coefficients:")
-    print(ocean.h0[:10])
+    animate_wave()
