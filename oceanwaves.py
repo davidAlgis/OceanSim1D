@@ -81,7 +81,7 @@ class OceanWaves:
         F = self.fetch
         alpha_js = 0.076 * ((U**2) / (F * g))**0.22
         # Corrected peak frequency.
-        omega_p = 22 * (g / (U * F))**(1 / 3)
+        omega_p = 22 * (g**2 / (U * F))
         gamma = 3.3
 
         for i in range(N):
@@ -93,6 +93,7 @@ class OceanWaves:
 
             # Dispersion: omega = sqrt(g * |k|)
             omega = np.sqrt(g * k_abs)
+            omega_derivative = np.sqrt(g * k_abs) / (2 * k_abs)
             sigma = 0.07 if omega <= omega_p else 0.09
             r_exp = np.exp(-((omega - omega_p)**2) / (2 * (sigma**2) *
                                                       (omega_p**2)))
@@ -100,9 +101,11 @@ class OceanWaves:
                 -5 / 4 * (omega_p / omega)**4) * (gamma**r_exp)
 
             # Amplitude (with the extra √(2π) factor).
-            amplitude = np.sqrt(
-                (2 * np.pi * g * S_omega) / (L * k_abs * omega))
-
+            # amplitude = np.sqrt(
+            # (2 * np.pi * g * S_omega) / (L * k_abs * omega))
+            delta_k = 2 * np.pi / L
+            amplitude = np.sqrt(2 * S_omega * abs(omega_derivative) / k_abs *
+                                delta_k**2)
             # Sample a complex Gaussian variable (mean 0, std dev 1 for each component).
             xi = np.random.normal(0, 1) + 1j * np.random.normal(0, 1)
             h0[i] = xi * amplitude
