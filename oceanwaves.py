@@ -101,8 +101,6 @@ class OceanWaves:
                 -5 / 4 * (omega_p / omega)**4) * (gamma**r_exp)
 
             # Amplitude (with the extra √(2π) factor).
-            # amplitude = np.sqrt(
-            # (2 * np.pi * g * S_omega) / (L * k_abs * omega))
             delta_k = 2 * np.pi / L
             amplitude = np.sqrt(2 * S_omega * abs(omega_derivative) / k_abs *
                                 delta_k**2)
@@ -115,35 +113,39 @@ class OceanWaves:
     def update(self, t):
         """
         Update the simulation state at time t.
-        
+
         Computes the time-dependent Fourier coefficients:
             h̃(k,t) = h0(k) e^(i ω t) + h0*(-k) e^(-i ω t),
-        and then synthesizes the fields via the inverse FFT.
+        then synthesizes the spatial fields via the inverse FFT with continuous 
+        synthesis correction.
         
-        To recover the continuous synthesis, we multiply by Δk (the step in k-space)
-        and then multiply the IFFT result by N (undoing its built-in 1/N factor).
-        This procedure ensures that the resulting water height has the correct amplitude.
+        The horizontal displacement is computed as:
+            D(x,t) = IFFT{ (i * k/|k|) h̃(k,t) },
+        with the convention that for k=0 we set the factor to 0.
+        
+        The derivative of h is computed as:
+            ∂h/∂x (x,t) = IFFT{ i |k| h̃(k,t) }.
         """
         phase_plus = np.exp(1j * self.omega * t)
         phase_minus = np.exp(-1j * self.omega * t)
 
-        # Time-dependent Fourier coefficients using mirror symmetry.
+        # Time-dependent Fourier coefficients.
         h_tilde = self.h0 * phase_plus + np.conjugate(
             self.h0[self.mirror]) * phase_minus
 
-        # Similarly, the displacement in Fourier space is:
-        sign_k = np.sign(self.k)
-        D_tilde = 1j * sign_k * h_tilde
+        # For displacement: compute k_norm = k/|k|, with safe handling for k = 0.
+        k_norm = np.where(np.abs(self.k) < 1e-6, 0, self.k / np.abs(self.k))
+        D_tilde = 1j * k_norm * h_tilde
 
-        # And the derivative in Fourier space:
-        derivative_hat = 1j * self.k * h_tilde
+        # For the derivative of h, use: derivative_hat = i * |k| * h_tilde.
+        derivative_hat = 1j * np.abs(self.k) * h_tilde
 
         # Multiply by Δk to approximate the continuous integral.
         H = h_tilde * self.delta_k
         D_H = D_tilde * self.delta_k
         Deriv_H = derivative_hat * self.delta_k
 
-        # Use the inverse FFT. (NumPy’s ifft includes a 1/N factor.)
+        # Use the inverse FFT. (NumPy’s ifft includes a 1/N factor, so we multiply by N.)
         self.water_height = np.real(np.fft.ifft(H) * self.N)
         self.displacement = np.real(np.fft.ifft(D_H) * self.N)
         self.derivative = np.real(np.fft.ifft(Deriv_H) * self.N)
@@ -154,7 +156,7 @@ class OceanWaves:
         
         The simulated water surface is given parametrically by
             ( x + D(x,t), h(x,t) ).
-        To get the water height at a world coordinate X, we iteratively solve:
+        To obtain the water height at a world coordinate X, we iteratively solve:
             x* = X - D(x*,t),
         then set h_real(X,t) = h(x*,t).
         
@@ -176,7 +178,7 @@ class OceanWaves:
 def animate_wave():
     # Simulation parameters.
     N = 256  # Number of grid points.
-    L = 100.0  # Domain length in meters.
+    L = 10.0  # Domain length in meters.
     wind_speed = 5.0  # m/s.
     fetch = 1000.0  # Fetch in meters.
     water_depth = 1e6  # Deep water.
@@ -186,7 +188,7 @@ def animate_wave():
 
     # Set up the Matplotlib figure.
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.set_xlim(0, L)
+    ax.set_xlim(0, 5)
     ax.set_ylim(-2,
                 2)  # Adjust vertical limits to see realistic wave amplitudes.
     ax.set_xlabel("x (m)")
