@@ -1,6 +1,6 @@
 import argparse
 from ocean.oceanwaves import OceanWaves
-from ocean.drawer import animate_simulation
+from ocean.drawer import OceanDrawer
 
 
 def main():
@@ -19,8 +19,8 @@ def main():
     parser.add_argument('-w',
                         '--wind_speed',
                         type=float,
-                        default=5.0,
-                        help="Wind speed in m/s (default: 5.0)")
+                        default=10.0,
+                        help="Wind speed in m/s (default: 10.0)")
     parser.add_argument('-f',
                         '--fetch',
                         type=float,
@@ -44,8 +44,10 @@ def main():
     ocean_instance = OceanWaves(args.n, args.length, args.wind_speed,
                                 args.fetch, args.water_depth)
 
-    # Launch the drawer/animation (completely decoupled from the physics simulation).
-    animate_simulation(ocean_instance, args.length, args.n, args.time_scale)
+    # Create the drawer instance and run the simulation.
+    drawer = OceanDrawer(ocean_instance, args.length, 10, 100 * args.n,
+                         args.time_scale)
+    drawer.run()
 
 
 if __name__ == '__main__':
