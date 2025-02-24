@@ -96,7 +96,6 @@ class WavesCascade:
         exponentConj = np.cos(phase) - 1j * np.sin(phase)
         h = self.h0 * exponent + np.conjugate(
             self.h0[self.mirror]) * exponentConj
-        self.h_tilde = h
 
         # Compute ih = -Im(h) + i * Re(h)
         ih = -np.imag(h) + 1j * np.real(h)
@@ -108,8 +107,9 @@ class WavesCascade:
                            out=np.zeros_like(self.k),
                            where=(abs_k >= 1e-6))
 
-        self.displacement_tilde = ih * k_norm
-        self.derivative_tilde = 1j * abs_k * h
+        self.h_tilde = h * self.delta_k
+        self.displacement_tilde = ih * k_norm * self.delta_k
+        self.derivative_tilde = 1j * abs_k * h * self.delta_k
 
     def apply_ifft(self):
         """
@@ -124,22 +124,14 @@ class WavesCascade:
         to account for the transform range being [-N/2, N/2].
         Finally, apply a results merger to the displacement.
         """
-        H = self.h_tilde * self.delta_k
-        D_H = self.displacement_tilde * self.delta_k
-        Deriv_H = self.derivative_tilde * self.delta_k
-
-        wh = np.real(np.fft.ifft(H) * self.N)
-        disp = np.real(np.fft.ifft(D_H) * self.N)
-        deriv = np.real(np.fft.ifft(Deriv_H) * self.N)
-
-        # Create a multiplier array: (-1)^i for each index i.
-        multiplier = 1
-        # multiplier = (-1)**np.arange(self.N)
+        wh = np.real(np.fft.ifft(self.h_tilde) * self.N)
+        disp = np.real(np.fft.ifft(self.displacement_tilde) * self.N)
+        deriv = np.real(np.fft.ifft(self.derivative_tilde) * self.N)
 
         # Multiply each output by the corresponding multiplier.
-        self.water_height = np.real(wh * multiplier)
-        self.displacement = np.real(disp * multiplier)
-        self.derivative = np.real(deriv * multiplier)
+        self.water_height = np.real(wh)
+        self.displacement = np.real(disp)
+        self.derivative = np.real(deriv)
 
     def get_fields(self):
         """
