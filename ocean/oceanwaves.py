@@ -1,174 +1,107 @@
 import numpy as np
+from ocean.cascade import WavesCascade
 
 
 class OceanWaves:
 
-    def __init__(self, N, L, wind_speed, fetch, water_depth):
+    def __init__(self, N, master_L, wind_speed, fetch, water_depth):
         """
-        Initialize the 1D ocean wave simulation parameters.
+        Global ocean simulation which stores cascades and common simulation parameters.
         
         Parameters:
-            N (int): Number of sample points in the 1D grid.
-            L (float): Domain length (m).
-            wind_speed (float): Wind speed (m/s).
-            fetch (float): Fetch distance (m).
-            water_depth (float): Water depth (assumed very large for deep water).
+            N (int): Number of grid points on the master grid (and per cascade).
+            master_L (float): Master domain length.
+            wind_speed, fetch, water_depth: Common ocean parameters.
         """
         self.N = N
-        self.L = L
+        self.master_L = master_L
         self.wind_speed = wind_speed
         self.fetch = fetch
-        self.water_depth = water_depth  # deep water assumption
+        self.water_depth = water_depth
 
-        self.g = 9.80665  # gravitational acceleration (m/s^2)
+        # Master grid for merging cascade contributions.
+        self.x = np.linspace(0, master_L, N)
 
-        # Create a 1D spatial grid (parameter space)
-        self.x = np.linspace(0, L, N)
+        # Create cascades with default settings:
+        self.cascades = []
+        # Cascade 0: L0 = 256, operating for |k| in [0, 12π/16)
+        self.cascades.append(
+            WavesCascade(N, 256, wind_speed, fetch, water_depth, 0,
+                         (12 * np.pi) / 16))
+        # Cascade 1: L1 = 16, operating for |k| in [12π/16, 12π/4)
+        self.cascades.append(
+            WavesCascade(N, 16, wind_speed, fetch, water_depth,
+                         (12 * np.pi) / 16, (12 * np.pi) / 4))
+        # Cascade 2: L2 = 4, operating for |k| in [12π/4, ∞)
+        self.cascades.append(
+            WavesCascade(N, 4, wind_speed, fetch, water_depth,
+                         (12 * np.pi) / 4, np.inf))
 
-        # Compute wave numbers using np.fft.fftfreq and convert to angular frequencies.
-        self.k = np.fft.fftfreq(N, d=L / N) * 2 * np.pi
-        # Dispersion: omega = sqrt(g * |k|) (with omega[0]=0)
-        self.omega = np.sqrt(self.g * np.abs(self.k))
+        # Immediately calculate the initial spectrum for each cascade.
+        self.recalculate_initial_parameters()
 
-        # Precompute indices for mirror symmetry: for each index i, mirror[i] = (-i) mod N.
-        self.mirror = np.array([(-i) % N for i in range(N)])
-
-        # Real-space fields (to be recovered via IFFT)
-        self.water_height = np.zeros(N)  # h(x,t)
-        self.displacement = np.zeros(N)  # horizontal displacement D(x,t)
-        self.derivative = np.zeros(N)  # spatial derivative ∂h/∂x(x,t)
-
-        # Compute the initial Fourier-space amplitudes h0.
-        self.h0 = self.compute_h0()
-
-        # Precompute Δk for the discrete synthesis.
-        self.delta_k = 2 * np.pi / self.L
-
-    def compute_h0(self):
+    def recalculate_initial_parameters(self):
         """
-        Compute the initial Fourier amplitude h0(k) using the JONSWAP spectrum.
-        
-        In 2D, the theory gives:
-            h0(k) = ξ(k) * sqrt((4π/(L_i * k)) S(ω) D(ω,θ) |dω/dk|),
-        and for a uniform directional spectrum D(ω,θ)=1/(2π) this simplifies to:
-            h0(k) = ξ(k) * sqrt((g S(ω))/(L k ω)).
-        
-        A 1D reduction that “recovers” the energy from the continuous transform
-        is obtained by including an extra factor of √(2π):
-        
-            h0(k) = ξ(k) * sqrt((2π g S(ω))/(L |k| ω)).
-        
-        The JONSWAP parameters are:
-            α = 0.076 (U²/(F g))^0.22,
-            ω_p = 22 (g/(U F))^(1/3)   (for dimensional consistency),
-            γ = 3.3,
-            σ = 0.07 if ω ≤ ω_p, 0.09 if ω > ω_p,
-        and ξ(k) is a complex Gaussian variable.
-        
-        Returns:
-            h0 (np.ndarray): Complex array of size N.
+        (Initialization step) For each cascade, calculate h₀ and its conjugate.
+        Mimics the CUDA function that initializes the spectrum.
         """
-        N = self.N
-        L = self.L
-        g = self.g
-        k = self.k
-        h0 = np.zeros(N, dtype=complex)
+        for cascade in self.cascades:
+            cascade.initialize_spectrum()
 
-        # JONSWAP parameters.
-        U = self.wind_speed
-        F = self.fetch
-        alpha_js = 0.076 * ((U**2) / (F * g))**0.22
-        # Corrected peak frequency.
-        omega_p = 22 * (g / (U * F))**(1 / 3)
-        gamma = 3.3
+    def update_time_dependency(self, t):
+        """
+        Update the time-dependent part of the simulation in each cascade.
+        """
+        for cascade in self.cascades:
+            cascade.update_time_dependency(t)
 
-        for i in range(N):
-            k_val = k[i]
-            k_abs = np.abs(k_val)
-            if k_abs < 1e-6:
-                h0[i] = 0.0
-                continue
-
-            # Dispersion: omega = sqrt(g * |k|)
-            omega = np.sqrt(g * k_abs)
-            # Compute derivative dω/dk = sqrt(g*k_abs) / (2*k_abs) = g/(2ω)
-            omega_derivative = g / (2 * omega)
-            sigma = 0.07 if omega <= omega_p else 0.09
-            r_exp = np.exp(-((omega - omega_p)**2) / (2 * (sigma**2) *
-                                                      (omega_p**2)))
-            S_omega = (alpha_js * g**2 / omega**5) * np.exp(
-                -5 / 4 * (omega_p / omega)**4) * (gamma**r_exp)
-
-            # Amplitude (with the extra √(2π) factor) and continuous correction (Δk²)
-            delta_k = 2 * np.pi / L
-            amplitude = np.sqrt(2 * S_omega * abs(omega_derivative) / k_abs *
-                                delta_k**2)
-            # Sample a complex Gaussian variable (mean 0, std dev 1 for each component).
-            xi = np.random.normal(0, 1) + 1j * np.random.normal(0, 1)
-            h0[i] = xi * amplitude
-
-        return h0
+    def apply_ifft(self):
+        """
+        For each cascade, apply the inverse FFT to obtain real-space fields.
+        """
+        for cascade in self.cascades:
+            cascade.apply_ifft()
 
     def update(self, t):
         """
-        Update the simulation state at time t.
-
-        Computes the time-dependent Fourier coefficients:
-            h̃(k,t) = h0(k) e^(i ω t) + h0*(-k) e^(-i ω t),
-        then synthesizes the spatial fields via the inverse FFT with continuous 
-        synthesis correction.
-        
-        The horizontal displacement is computed as:
-            D(x,t) = IFFT{ (i * k/|k|) h̃(k,t) },
-        with the convention that for k=0 we set the factor to 0.
-        
-        The derivative of h is computed as:
-            ∂h/∂x (x,t) = IFFT{ i |k| h̃(k,t) }.
+        Update the ocean simulation in three parts (mimicking the CUDA code structure):
+          1. Update the time dependency in each cascade.
+          2. Apply the inverse FFT in each cascade.
+          3. (Merging is done later in get_real_water_height.)
         """
-        phase_plus = np.exp(1j * self.omega * t)
-        phase_minus = np.exp(-1j * self.omega * t)
-
-        # Time-dependent Fourier coefficients using mirror symmetry.
-        h_tilde = self.h0 * phase_plus + np.conjugate(
-            self.h0[self.mirror]) * phase_minus
-
-        # For displacement: compute k_norm = k/|k|, with safe handling for k = 0.
-        k_norm = np.where(np.abs(self.k) < 1e-6, 0, self.k / np.abs(self.k))
-        D_tilde = 1j * k_norm * h_tilde
-
-        # For the derivative of h, use: derivative_hat = i * |k| * h_tilde.
-        derivative_hat = 1j * np.abs(self.k) * h_tilde
-
-        # Multiply by Δk to approximate the continuous integral.
-        H = h_tilde * self.delta_k
-        D_H = D_tilde * self.delta_k
-        Deriv_H = derivative_hat * self.delta_k
-
-        # Use the inverse FFT. (NumPy’s ifft includes a 1/N factor, so we multiply by N.)
-        self.water_height = np.real(np.fft.ifft(H) * self.N)
-        self.displacement = np.real(np.fft.ifft(D_H) * self.N)
-        self.derivative = np.real(np.fft.ifft(Deriv_H) * self.N)
+        self.update_time_dependency(t)
+        self.apply_ifft()
 
     def get_real_water_height(self, X, N_iter=4):
         """
-        Retrieve the "real" water height at fixed world coordinates X.
+        Retrieve the "real" water height at the given world positions X.
         
-        The simulated water surface is given parametrically by:
-            ( x + D(x,t), h(x,t) ).
-        To get the water height at a world coordinate X, we iteratively solve:
-            x* = X - D(x*,t),
-        then set h_real(X,t) = h(x*,t).
+        Inspired by your CUDA getWaterHeight kernel, the ocean surface is defined 
+        parametrically as (x + D(x,t), h(x,t)). We iteratively correct the queried
+        horizontal positions by subtracting the total horizontal displacement from all 
+        cascades.
         
         Parameters:
-            X (np.ndarray): World positions.
+            X (np.ndarray): Array of master grid positions (world coordinates).
             N_iter (int): Number of iterations.
             
         Returns:
-            h_real (np.ndarray): Water height at positions X.
+            h_real (np.ndarray): The water height at positions X.
         """
         x_guess = X.copy()
         for _ in range(N_iter):
-            D_guess = np.interp(x_guess, self.x, self.displacement)
-            x_guess = X - D_guess
-        h_real = np.interp(x_guess, self.x, self.water_height)
-        return h_real
+            total_disp = np.zeros_like(x_guess)
+            # For each cascade, re-map x_guess to the cascade coordinate and interpolate its displacement.
+            for cascade in self.cascades:
+                x_cascade = (x_guess / self.master_L) * cascade.L
+                disp_cascade = np.interp(x_cascade, cascade.x,
+                                         cascade.displacement)
+                total_disp += disp_cascade
+            x_guess = X - total_disp
+        # Once converged, sum the water height contributions from each cascade.
+        total_wh = np.zeros_like(x_guess)
+        for cascade in self.cascades:
+            x_cascade = (x_guess / self.master_L) * cascade.L
+            wh_cascade = np.interp(x_cascade, cascade.x, cascade.water_height)
+            total_wh += wh_cascade
+        return total_wh
