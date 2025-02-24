@@ -47,11 +47,16 @@ class WavesCascade:
 
         # Real–space fields.
         self.water_height = np.zeros(N)
+        self.h_tilde = np.zeros(N, dtype=complex)
         self.displacement = np.zeros(N)
+        self.displacement_tilde = np.zeros(N, dtype=complex)
         self.derivative = np.zeros(N)
+        self.derivative_tilde = np.zeros(N, dtype=complex)
 
         # Velocity fields (2D array for different depth slices).
         self.velocity = np.zeros((interpolation_degree, N, 2))
+        self.velocity_tilde = np.zeros((interpolation_degree, N, 2),
+                                       dtype=complex)
 
     def initialize_spectrum(self):
         """
@@ -106,6 +111,8 @@ class WavesCascade:
 
         h = self.h0 * exponent + np.conjugate(
             self.h0[self.mirror]) * exponentConj
+        h_v = self.h0 * exponent - np.conjugate(
+            self.h0[self.mirror]) * exponentConj
         ih = -np.imag(h) + 1j * np.real(h)
 
         abs_k = np.abs(self.k)
@@ -126,13 +133,17 @@ class WavesCascade:
                                where=(self.omega >= 1e-6))
 
         for i, depth in enumerate(self.log_grid):
-            attenuation = np.exp(-abs_k * abs(depth))
+            if depth > 0:
+                attenuation = 1 + abs_k * depth
+            else:
+                attenuation = np.exp(abs_k * depth)
 
-            vx_tilde = -k_norm * safe_omega * h * attenuation * self.delta_k
-            vy_tilde = 1j * self.omega * h * attenuation * self.delta_k
+            vx_tilde = -self.k * safe_omega * h_v * attenuation * self.delta_k
+            vy_tilde = 1j * self.omega * h_v * attenuation * self.delta_k
 
-            self.velocity[i, :, 0] = np.real(vx_tilde)
-            self.velocity[i, :, 1] = np.real(vy_tilde)
+            # self.velocity[i, :, 0] = np.real(vx_tilde)
+            self.velocity_tilde[i, :, 0] = vx_tilde
+            self.velocity_tilde[i, :, 1] = vy_tilde
 
     def apply_ifft(self):
         """
@@ -145,8 +156,10 @@ class WavesCascade:
 
         # Apply IFFT to velocity at each depth slice
         for i in range(self.interpolation_degree):
-            vx_ifft = np.real(np.fft.ifft(self.velocity[i, :, 0]) * self.N)
-            vy_ifft = np.real(np.fft.ifft(self.velocity[i, :, 1]) * self.N)
+            vx_ifft = np.real(
+                np.fft.ifft(self.velocity_tilde[i, :, 0]) * self.N)
+            vy_ifft = np.real(
+                np.fft.ifft(self.velocity_tilde[i, :, 1]) * self.N)
             self.velocity[i, :, 0] = vx_ifft
             self.velocity[i, :, 1] = vy_ifft
 
