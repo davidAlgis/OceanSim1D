@@ -3,7 +3,8 @@ import numpy as np
 
 class WavesCascade:
 
-    def __init__(self, N, L, wind_speed, fetch, water_depth, kmin, kmax):
+    def __init__(self, N, L, wind_speed, fetch, water_depth, kmin, kmax,
+                 interpolation_degree):
         """
         Initialize a single cascade.
         
@@ -21,6 +22,7 @@ class WavesCascade:
         self.wind_speed = wind_speed
         self.fetch = fetch
         self.water_depth = water_depth
+        self.interpolation_degree = interpolation_degree
         self.g = 9.80665
 
         # Spatial grid for this cascade.

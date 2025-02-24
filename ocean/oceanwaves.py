@@ -43,13 +43,14 @@ class OceanWaves:
         self.cascades = []
         self.cascades.append(
             WavesCascade(N, 256, wind_speed, fetch, water_depth, 0,
-                         (12 * np.pi) / 16))
+                         (12 * np.pi) / 16, self.interpolation_degree))
         self.cascades.append(
             WavesCascade(N, 16, wind_speed, fetch, water_depth,
-                         (12 * np.pi) / 16, (12 * np.pi) / 4))
+                         (12 * np.pi) / 16, (12 * np.pi) / 4,
+                         self.interpolation_degree))
         self.cascades.append(
             WavesCascade(N, 4, wind_speed, fetch, water_depth,
-                         (12 * np.pi) / 4, np.inf))
+                         (12 * np.pi) / 4, np.inf, self.interpolation_degree))
 
         # Logarithmic grid for velocity interpolation based on dynamic depth boundaries
         y_min, y_max = self.depth_boundaries
