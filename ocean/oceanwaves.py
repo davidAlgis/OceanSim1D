@@ -174,3 +174,64 @@ class OceanWaves:
             wh_cascade = np.interp(x_cascade, cascade.x, cascade.water_height)
             total_wh += wh_cascade
         return total_wh
+
+    def get_real_water_velocity(self, X, Y):
+        """
+        Retrieve the interpolated water velocity at given world positions (X, Y).
+        
+        Parameters:
+            X (np.ndarray): Array of horizontal world positions.
+            Y (np.ndarray): Array of vertical positions (depths in meters).
+            
+        Returns:
+            np.ndarray: Array of shape (N, 2) containing (vx, vy) for each (X, Y).
+        """
+        velocities = np.zeros((len(X), 2))  # (vx, vy)
+
+        for idx, (x, y) in enumerate(zip(X, Y)):
+            # Get water height at x
+            h_x = self.get_real_water_height(np.array([x]))[0]
+
+            # If above the water surface, velocity is zero
+            if y > h_x:
+                continue
+
+            velocity_slices = np.zeros((self.interpolation_degree, 2))
+
+            # Sum velocity contributions across cascades
+            for cascade in self.cascades:
+                x_scaled = (x / self.master_L) * cascade.L
+
+                for i in range(self.interpolation_degree):
+                    # Interpolate velocity for each cascade slice
+                    v_interp = np.array([
+                        np.interp(x_scaled, cascade.x, cascade.velocity[i, :,
+                                                                        0]),
+                        np.interp(x_scaled, cascade.x, cascade.velocity[i, :,
+                                                                        1])
+                    ])
+                    velocity_slices[i] += v_interp  # Sum cascades
+
+            # Perform **exponential interpolation** in depth
+            depth_grid = self.velocity_depths
+            vx_slices, vy_slices = velocity_slices[:, 0], velocity_slices[:, 1]
+
+            # Handle out-of-bounds depth cases
+            if y <= depth_grid[0]:  # If shallower than min depth
+                velocities[idx] = [vx_slices[0], vy_slices[0]]
+            elif y >= depth_grid[-1]:  # If deeper than max depth
+                velocities[idx] = [vx_slices[-1], vy_slices[-1]]
+            else:
+                # Find the correct interpolation index
+                i = np.searchsorted(depth_grid, y) - 1
+                pos_i, pos_ip1 = depth_grid[i], depth_grid[i + 1]
+                vel_i, vel_ip1 = velocity_slices[i], velocity_slices[i + 1]
+
+                # **Exponential interpolation**
+                beta = (np.log(np.abs(vel_ip1) + 1e-6) -
+                        np.log(np.abs(vel_i) + 1e-6)) / (pos_ip1 - pos_i)
+                alpha = vel_i / np.exp(beta * pos_i)
+
+                velocities[idx] = alpha * np.exp(beta * y)
+
+        return velocities
