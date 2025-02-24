@@ -60,7 +60,7 @@ class WavesCascade:
         U = self.wind_speed
         F = self.fetch
         alpha_js = 0.076 * ((U**2) / (F * g))**0.22
-        omega_p = 22 * (g / (U * F))**(1 / 3)
+        omega_p = 22 * (g**2 / (U * F))
         gamma = 3.3
 
         for i in range(N):
@@ -71,7 +71,7 @@ class WavesCascade:
                 continue
 
             omega = np.sqrt(g * k_abs)
-            # dω/dk = g/(2ω)
+
             omega_deriv = g / (2 * omega)
             sigma = 0.07 if omega <= omega_p else 0.09
             r_exp = np.exp(-((omega - omega_p)**2) / (2 * (sigma**2) *
