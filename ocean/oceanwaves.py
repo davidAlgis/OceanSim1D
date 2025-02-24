@@ -1,6 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
 
 class OceanWaves:
@@ -52,7 +50,7 @@ class OceanWaves:
         
         In 2D, the theory gives:
             h0(k) = ξ(k) * sqrt((4π/(L_i * k)) S(ω) D(ω,θ) |dω/dk|),
-        and for a uniform directional spectrum D(ω,θ)=1/(2π) this simplifies to
+        and for a uniform directional spectrum D(ω,θ)=1/(2π) this simplifies to:
             h0(k) = ξ(k) * sqrt((g S(ω))/(L k ω)).
         
         A 1D reduction that “recovers” the energy from the continuous transform
@@ -81,7 +79,7 @@ class OceanWaves:
         F = self.fetch
         alpha_js = 0.076 * ((U**2) / (F * g))**0.22
         # Corrected peak frequency.
-        omega_p = 22 * (g**2 / (U * F))
+        omega_p = 22 * (g / (U * F))**(1 / 3)
         gamma = 3.3
 
         for i in range(N):
@@ -93,14 +91,15 @@ class OceanWaves:
 
             # Dispersion: omega = sqrt(g * |k|)
             omega = np.sqrt(g * k_abs)
-            omega_derivative = np.sqrt(g * k_abs) / (2 * k_abs)
+            # Compute derivative dω/dk = sqrt(g*k_abs) / (2*k_abs) = g/(2ω)
+            omega_derivative = g / (2 * omega)
             sigma = 0.07 if omega <= omega_p else 0.09
             r_exp = np.exp(-((omega - omega_p)**2) / (2 * (sigma**2) *
                                                       (omega_p**2)))
             S_omega = (alpha_js * g**2 / omega**5) * np.exp(
                 -5 / 4 * (omega_p / omega)**4) * (gamma**r_exp)
 
-            # Amplitude (with the extra √(2π) factor).
+            # Amplitude (with the extra √(2π) factor) and continuous correction (Δk²)
             delta_k = 2 * np.pi / L
             amplitude = np.sqrt(2 * S_omega * abs(omega_derivative) / k_abs *
                                 delta_k**2)
@@ -129,7 +128,7 @@ class OceanWaves:
         phase_plus = np.exp(1j * self.omega * t)
         phase_minus = np.exp(-1j * self.omega * t)
 
-        # Time-dependent Fourier coefficients.
+        # Time-dependent Fourier coefficients using mirror symmetry.
         h_tilde = self.h0 * phase_plus + np.conjugate(
             self.h0[self.mirror]) * phase_minus
 
@@ -154,9 +153,9 @@ class OceanWaves:
         """
         Retrieve the "real" water height at fixed world coordinates X.
         
-        The simulated water surface is given parametrically by
+        The simulated water surface is given parametrically by:
             ( x + D(x,t), h(x,t) ).
-        To obtain the water height at a world coordinate X, we iteratively solve:
+        To get the water height at a world coordinate X, we iteratively solve:
             x* = X - D(x*,t),
         then set h_real(X,t) = h(x*,t).
         
@@ -173,52 +172,3 @@ class OceanWaves:
             x_guess = X - D_guess
         h_real = np.interp(x_guess, self.x, self.water_height)
         return h_real
-
-
-def animate_wave():
-    # Simulation parameters.
-    N = 256  # Number of grid points.
-    L = 10.0  # Domain length in meters.
-    wind_speed = 5.0  # m/s.
-    fetch = 1000.0  # Fetch in meters.
-    water_depth = 1e6  # Deep water.
-
-    # Create an instance of the simulation.
-    ocean = OceanWaves(N, L, wind_speed, fetch, water_depth)
-
-    # Set up the Matplotlib figure.
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.set_xlim(0, 5)
-    ax.set_ylim(-2,
-                2)  # Adjust vertical limits to see realistic wave amplitudes.
-    ax.set_xlabel("x (m)")
-    ax.set_ylabel("Water Height (m)")
-    title = ax.set_title("Ocean Waves at t = 0.00 s")
-    line, = ax.plot([], [], lw=2, color="b")
-
-    # Fixed world coordinates where we evaluate the "real" water height.
-    X_world = np.linspace(0, L, N)
-
-    def init():
-        line.set_data([], [])
-        return line, title
-
-    def update_frame(frame):
-        t = frame / 10.0  # Time (in seconds) for visualization.
-        ocean.update(t)
-        h_real = ocean.get_real_water_height(X_world, N_iter=4)
-        line.set_data(X_world, h_real)
-        title.set_text(f"Ocean Waves at t = {t:.2f} s")
-        return line, title
-
-    ani = animation.FuncAnimation(fig,
-                                  update_frame,
-                                  frames=200,
-                                  init_func=init,
-                                  blit=True,
-                                  interval=50)
-    plt.show()
-
-
-if __name__ == '__main__':
-    animate_wave()
