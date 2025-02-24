@@ -5,12 +5,8 @@ import numpy as np
 
 class OceanDrawer:
 
-    def __init__(self,
-                 ocean_instance,
-                 domain_length,
-                 domain_length_to_view,
-                 draw_points,
-                 time_scale=1.0):
+    def __init__(self, ocean_instance, domain_length, domain_length_to_view,
+                 draw_points, time_scale, interpolation_degree):
         """
         Initialize the drawer with the given ocean simulation instance and display parameters.
         

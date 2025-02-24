@@ -39,15 +39,16 @@ def main():
         default=1.0,
         help="Time scaling factor for visualization (default: 1.0)")
     args = parser.parse_args()
-
+    interpolation_degree = 8
     # Create the physics simulation instance.
     ocean_instance = OceanWaves(args.n, args.length, args.wind_speed,
-                                args.fetch, args.water_depth)
+                                args.fetch, args.water_depth,
+                                interpolation_degree)
 
     # Create the drawer instance and run the simulation.
     doman_to_view = 20
     drawer = OceanDrawer(ocean_instance, args.length, doman_to_view,
-                         100 * args.n, args.time_scale)
+                         100 * args.n, args.time_scale, interpolation_degree)
     drawer.run()
 
 
