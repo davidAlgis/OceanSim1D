@@ -71,14 +71,14 @@ class WavesCascade:
                 continue
 
             omega = np.sqrt(g * k_abs)
-
+            # dω/dk = g/(2ω)
             omega_deriv = g / (2 * omega)
             sigma = 0.07 if omega <= omega_p else 0.09
             r_exp = np.exp(-((omega - omega_p)**2) / (2 * (sigma**2) *
                                                       (omega_p**2)))
             S_omega = (alpha_js * g**2 / omega**5) * np.exp(
                 -5 / 4 * (omega_p / omega)**4) * (gamma**r_exp)
-            # Include continuous synthesis correction: factor delta_k².
+            # Continuous synthesis correction: include factor delta_k².
             amplitude = np.sqrt(2 * S_omega * omega_deriv / k_abs *
                                 (self.delta_k**2))
             xi = np.random.normal(0, 1) + 1j * np.random.normal(0, 1)
@@ -88,42 +88,58 @@ class WavesCascade:
 
     def update_time_dependency(self, t):
         """
-        Update the time-dependent Fourier coefficients for this cascade.
-        
-        h̃(k,t) = h0(k) e^(i ω t) + h0_conj(-k) e^(-i ω t)
+        Update the time-dependent Fourier coefficients for this cascade,
+        computing displacement and derivative in Fourier space, mimicking the CUDA kernel.
         """
-        phase_plus = np.exp(1j * self.omega * t)
-        phase_minus = np.exp(-1j * self.omega * t)
-        h_tilde = self.h0 * phase_plus + np.conjugate(
-            self.h0[self.mirror]) * phase_minus
-        self.h_tilde = h_tilde
-        return h_tilde
+        phase = self.omega * t
+        exponent = np.cos(phase) + 1j * np.sin(phase)
+        exponentConj = np.cos(phase) - 1j * np.sin(phase)
+        h = self.h0 * exponent + np.conjugate(
+            self.h0[self.mirror]) * exponentConj
+        self.h_tilde = h
+
+        # Compute ih = -Im(h) + i * Re(h)
+        ih = -np.imag(h) + 1j * np.real(h)
+
+        abs_k = np.abs(self.k)
+        # Use np.divide to avoid warnings
+        k_norm = np.divide(self.k,
+                           abs_k,
+                           out=np.zeros_like(self.k),
+                           where=(abs_k >= 1e-6))
+
+        self.displacement_tilde = ih * k_norm
+        self.derivative_tilde = 1j * abs_k * h
 
     def apply_ifft(self):
         """
-        Apply the inverse FFT (with continuous correction) to recover real–space fields.
+        Apply the inverse FFT (with continuous synthesis correction) to recover real–space fields.
         
-        Compute:
-          water_height = IFFT{ h̃(k,t) * delta_k } * N,
-          displacement = IFFT{ (i k/|k|) h̃(k,t) * delta_k } * N,
-          derivative = IFFT{ i|k| h̃(k,t) * delta_k } * N.
+        Computes:
+          water_height = IFFT{ h_tilde * delta_k } * N,
+          displacement = IFFT{ (computed displacement_tilde) * delta_k } * N,
+          derivative = IFFT{ (computed derivative_tilde) * delta_k } * N.
+        
+        Then post-process the result by multiplying by (-1)^i (for each spatial index i)
+        to account for the transform range being [-N/2, N/2].
+        Finally, apply a results merger to the displacement.
         """
-        h_tilde = self.h_tilde
-        # Compute k_norm safely.
-        abs_k = np.abs(self.k)
-        k_norm = np.zeros_like(self.k)
-        nonzero = abs_k >= 1e-6
-        k_norm[nonzero] = self.k[nonzero] / abs_k[nonzero]
-        D_tilde = 1j * k_norm * h_tilde
-        derivative_hat = 1j * abs_k * h_tilde
+        H = self.h_tilde * self.delta_k
+        D_H = self.displacement_tilde * self.delta_k
+        Deriv_H = self.derivative_tilde * self.delta_k
 
-        H = h_tilde * self.delta_k
-        D_H = D_tilde * self.delta_k
-        Deriv_H = derivative_hat * self.delta_k
+        wh = np.real(np.fft.ifft(H) * self.N)
+        disp = np.real(np.fft.ifft(D_H) * self.N)
+        deriv = np.real(np.fft.ifft(Deriv_H) * self.N)
 
-        self.water_height = np.real(np.fft.ifft(H) * self.N)
-        self.displacement = np.real(np.fft.ifft(D_H) * self.N)
-        self.derivative = np.real(np.fft.ifft(Deriv_H) * self.N)
+        # Create a multiplier array: (-1)^i for each index i.
+        multiplier = 1
+        # multiplier = (-1)**np.arange(self.N)
+
+        # Multiply each output by the corresponding multiplier.
+        self.water_height = np.real(wh * multiplier)
+        self.displacement = np.real(disp * multiplier)
+        self.derivative = np.real(deriv * multiplier)
 
     def get_fields(self):
         """

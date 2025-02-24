@@ -19,13 +19,13 @@ def main():
     parser.add_argument('-w',
                         '--wind_speed',
                         type=float,
-                        default=10.0,
+                        default=5.0,
                         help="Wind speed in m/s (default: 10.0)")
     parser.add_argument('-f',
                         '--fetch',
                         type=float,
-                        default=1000.0,
-                        help="Fetch in meters (default: 1000.0)")
+                        default=10000.0,
+                        help="Fetch in meters (default: 10000.0)")
     parser.add_argument(
         '-d',
         '--water_depth',
@@ -36,8 +36,8 @@ def main():
         '-t',
         '--time_scale',
         type=float,
-        default=10.0,
-        help="Time scaling factor for visualization (default: 10.0)")
+        default=1.0,
+        help="Time scaling factor for visualization (default: 1.0)")
     args = parser.parse_args()
 
     # Create the physics simulation instance.
@@ -45,8 +45,9 @@ def main():
                                 args.fetch, args.water_depth)
 
     # Create the drawer instance and run the simulation.
-    drawer = OceanDrawer(ocean_instance, args.length, 10, 100 * args.n,
-                         args.time_scale)
+    doman_to_view = 20
+    drawer = OceanDrawer(ocean_instance, args.length, doman_to_view,
+                         100 * args.n, args.time_scale)
     drawer.run()
 
 
