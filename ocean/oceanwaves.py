@@ -35,6 +35,10 @@ class OceanWaves:
 
         # Get depth boundaries from sea state
         self.depth_boundaries = self.get_depth_boundaries(self.sea_state)
+        # Logarithmic grid for velocity interpolation based on dynamic depth boundaries
+        y_min, y_max = self.depth_boundaries
+        self.velocity_depths = self.compute_log_grid(y_min, y_max,
+                                                     interpolation_degree)
 
         # Master grid for merging cascade contributions.
         self.x = np.linspace(0, master_L, N)
@@ -43,19 +47,16 @@ class OceanWaves:
         self.cascades = []
         self.cascades.append(
             WavesCascade(N, 256, wind_speed, fetch, water_depth, 0,
-                         (12 * np.pi) / 16, self.interpolation_degree))
+                         (12 * np.pi) / 16, self.interpolation_degree,
+                         self.velocity_depths))
         self.cascades.append(
             WavesCascade(N, 16, wind_speed, fetch, water_depth,
                          (12 * np.pi) / 16, (12 * np.pi) / 4,
-                         self.interpolation_degree))
+                         self.interpolation_degree, self.velocity_depths))
         self.cascades.append(
             WavesCascade(N, 4, wind_speed, fetch, water_depth,
-                         (12 * np.pi) / 4, np.inf, self.interpolation_degree))
-
-        # Logarithmic grid for velocity interpolation based on dynamic depth boundaries
-        y_min, y_max = self.depth_boundaries
-        self.velocity_depths = self.compute_log_grid(y_min, y_max,
-                                                     interpolation_degree)
+                         (12 * np.pi) / 4, np.inf, self.interpolation_degree,
+                         self.velocity_depths))
 
         # Immediately calculate the initial spectrum for each cascade.
         self.recalculate_initial_parameters()
