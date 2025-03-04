@@ -1,5 +1,6 @@
 import argparse
-from ocean.oceanwaves import OceanWaves
+from ocean.ocean_waves import OceanWaves
+from ocean.init_helper import OceanInitConfig
 from ocean.drawer import OceanDrawer
 
 
@@ -39,15 +40,22 @@ def main():
         default=1.0,
         help="Time scaling factor for visualization (default: 1.0)")
     args = parser.parse_args()
+
     interpolation_degree = 8
-    # Create the physics simulation instance.
-    ocean_instance = OceanWaves(args.n, args.length, args.wind_speed,
-                                args.fetch, args.water_depth,
-                                interpolation_degree)
+    # Create an initialization configuration.
+    config = OceanInitConfig(N=args.n,
+                             master_L=args.length,
+                             wind_speed=args.wind_speed,
+                             fetch=args.fetch,
+                             water_depth=args.water_depth,
+                             interpolation_degree=interpolation_degree)
+
+    # Create the ocean simulation instance.
+    ocean_instance = OceanWaves(config)
 
     # Create the drawer instance and run the simulation.
-    doman_to_view = 20
-    drawer = OceanDrawer(ocean_instance, args.length, doman_to_view,
+    domain_to_view = 20
+    drawer = OceanDrawer(ocean_instance, args.length, domain_to_view,
                          100 * args.n, args.time_scale, interpolation_degree)
     drawer.run()
 
