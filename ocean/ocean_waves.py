@@ -175,102 +175,145 @@ class OceanWaves:
         self.apply_ifft()
 
     def get_real_water_height(self, X, N_iter=4):
-        """
-        Retrieve the "real" water height at the given world positions X.
-
-        Inspired by your CUDA getWaterHeight kernel, the ocean surface is defined
-        parametrically as (x + D(x,t), h(x,t)). We iteratively correct the queried
-        horizontal positions by subtracting the total horizontal displacement from all
-        cascades.
-
-        Parameters:
-            X (np.ndarray): Array of master grid positions (world coordinates).
-            N_iter (int): Number of iterations.
-
-        Returns:
-            h_real (np.ndarray): The water height at positions X.
-        """
-        x_guess = X.copy()
-        for _ in range(N_iter):
-            total_disp = np.zeros_like(x_guess)
-            for cascade in self.cascades:
-                x_cascade = (x_guess / self.master_L) * cascade.L
-                disp_cascade = np.interp(
-                    x_cascade, cascade.x, cascade.displacement
-                )
-                total_disp += disp_cascade
-            x_guess = X - total_disp
-
-        total_wh = np.zeros_like(x_guess)
-        for cascade in self.cascades:
-            x_cascade = (x_guess / self.master_L) * cascade.L
-            wh_cascade = np.interp(x_cascade, cascade.x, cascade.water_height)
-            total_wh += wh_cascade
-        return total_wh
+        # Extract cascade attributes.
+        L_list = [cascade.L for cascade in self.cascades]
+        x_list = [cascade.x for cascade in self.cascades]
+        displacement_list = [cascade.displacement for cascade in self.cascades]
+        water_height_list = [cascade.water_height for cascade in self.cascades]
+        return static_get_real_water_height(
+            X,
+            self.master_L,
+            L_list,
+            x_list,
+            displacement_list,
+            water_height_list,
+            N_iter,
+        )
 
     def get_real_water_velocity(self, X, Y):
-        """
-        Retrieve the interpolated water velocity at given world positions (X, Y).
+        L_list = [cascade.L for cascade in self.cascades]
+        x_list = [cascade.x for cascade in self.cascades]
+        displacement_list = [cascade.displacement for cascade in self.cascades]
+        water_height_list = [cascade.water_height for cascade in self.cascades]
+        velocity_list = [cascade.velocity for cascade in self.cascades]
+        return static_get_real_water_velocity(
+            X,
+            Y,
+            self.master_L,
+            L_list,
+            x_list,
+            displacement_list,
+            water_height_list,
+            velocity_list,
+            self.velocity_depths,
+            self.interpolation_degree,
+        )
 
-        Parameters:
-            X (np.ndarray): Array of horizontal world positions.
-            Y (np.ndarray): Array of vertical positions (depths in meters).
 
-        Returns:
-            np.ndarray: Array of shape (N, 2) containing (vx, vy) for each (X, Y).
-        """
-        velocities = np.zeros((len(X), 2))  # (vx, vy)
+def static_get_real_water_height(
+    X, master_L, L_list, x_list, displacement_list, water_height_list, N_iter=4
+):
+    """
+    Compute the "real" water height at positions X.
 
-        for idx, (x, y) in enumerate(zip(X, Y)):
-            # Get water height at x
-            h_x = self.get_real_water_height(np.array([x]))[0]
+    Parameters:
+        X (np.ndarray): 1D array of master grid positions.
+        master_L (float): The master domain length.
+        L_list (list of float): List of cascade domain lengths.
+        x_list (list of np.ndarray): List of 1D arrays with cascade grid positions.
+        displacement_list (list of np.ndarray): List of 1D arrays with cascade displacements.
+        water_height_list (list of np.ndarray): List of 1D arrays with cascade water heights.
+        N_iter (int): Number of correction iterations (default: 4).
 
-            # If above the water surface, velocity is zero
-            if y > h_x:
-                continue
+    Returns:
+        np.ndarray: The computed water height at each position in X.
+    """
+    x_guess = X.copy()
+    for _ in range(N_iter):
+        total_disp = np.zeros_like(x_guess)
+        for L, x_grid, disp in zip(L_list, x_list, displacement_list):
+            # Map master grid positions into cascade coordinates.
+            x_cascade = (x_guess / master_L) * L
+            total_disp += np.interp(x_cascade, x_grid, disp)
+        x_guess = X - total_disp
 
-            velocity_slices = np.zeros((self.interpolation_degree, 2))
+    total_wh = np.zeros_like(x_guess)
+    for L, x_grid, wh in zip(L_list, x_list, water_height_list):
+        x_cascade = (x_guess / master_L) * L
+        total_wh += np.interp(x_cascade, x_grid, wh)
+    return total_wh
 
-            # Sum velocity contributions across cascades
-            for cascade in self.cascades:
-                x_scaled = (x / self.master_L) * cascade.L
 
-                for i in range(self.interpolation_degree):
-                    # Interpolate velocity for each cascade slice
-                    v_interp = np.array(
-                        [
-                            np.interp(
-                                x_scaled, cascade.x, cascade.velocity[i, :, 0]
-                            ),
-                            np.interp(
-                                x_scaled, cascade.x, cascade.velocity[i, :, 1]
-                            ),
-                        ]
-                    )
-                    velocity_slices[i] += v_interp  # Sum cascades
+def static_get_real_water_velocity(
+    X,
+    Y,
+    master_L,
+    L_list,
+    x_list,
+    displacement_list,
+    water_height_list,
+    velocity_list,
+    velocity_depths,
+    interpolation_degree,
+):
+    """
+    Compute the water velocity at given world positions (X, Y) using the same procedure as the non-static method.
 
-            # Perform **exponential interpolation** in depth
-            depth_grid = self.velocity_depths
-            vx_slices, vy_slices = velocity_slices[:, 0], velocity_slices[:, 1]
+    Parameters:
+        X (np.ndarray): 1D array of horizontal master grid positions.
+        Y (np.ndarray): 1D array of vertical positions (depths).
+        master_L (float): The master domain length.
+        L_list (list of float): List of cascade domain lengths.
+        x_list (list of np.ndarray): List of 1D arrays with cascade grid positions.
+        displacement_list (list of np.ndarray): List of 1D arrays with cascade displacements.
+        water_height_list (list of np.ndarray): List of 1D arrays with cascade water heights.
+        velocity_list (list of np.ndarray): List of 3D arrays with cascade velocity fields
+            (each of shape (interpolation_degree, N, 2)).
+        velocity_depths (np.ndarray): 1D array of logarithmically spaced depth values.
+        interpolation_degree (int): Number of depth slices.
 
-            # Handle out-of-bounds depth cases
-            if y <= depth_grid[0]:  # If shallower than min depth
-                velocities[idx] = [vx_slices[0], vy_slices[0]]
-            elif y >= depth_grid[-1]:  # If deeper than max depth
-                velocities[idx] = [vx_slices[-1], vy_slices[-1]]
-            else:
-                # Find the correct interpolation index
-                i = np.searchsorted(depth_grid, y) - 1
-                pos_i, pos_ip1 = depth_grid[i], depth_grid[i + 1]
-                vel_i, vel_ip1 = velocity_slices[i], velocity_slices[i + 1]
+    Returns:
+        np.ndarray: Array of shape (len(X), 2) containing (vx, vy) for each query position.
+    """
+    # First, compute the water height at each X.
+    h_vals = static_get_real_water_height(
+        X,
+        master_L,
+        L_list,
+        x_list,
+        displacement_list,
+        water_height_list,
+        N_iter=4,
+    )
 
-                # **Exponential interpolation**
-                beta = (
-                    np.log(np.abs(vel_ip1) + 1e-6)
-                    - np.log(np.abs(vel_i) + 1e-6)
-                ) / (pos_ip1 - pos_i)
-                alpha = vel_i / np.exp(beta * pos_i)
+    velocities = np.zeros((len(X), 2))
+    for idx, (x, y) in enumerate(zip(X, Y)):
+        # If above the water surface, velocity remains zero.
+        if y > h_vals[idx]:
+            continue
 
-                velocities[idx] = alpha * np.exp(beta * y)
+        # Sum velocity contributions across cascades.
+        velocity_slices = np.zeros((interpolation_degree, 2))
+        for L, x_grid, vel_field in zip(L_list, x_list, velocity_list):
+            x_scaled = (x / master_L) * L
+            for i in range(interpolation_degree):
+                v_interp0 = np.interp(x_scaled, x_grid, vel_field[i, :, 0])
+                v_interp1 = np.interp(x_scaled, x_grid, vel_field[i, :, 1])
+                velocity_slices[i] += np.array([v_interp0, v_interp1])
 
-        return velocities
+        # Perform exponential interpolation along depth.
+        if y <= velocity_depths[0]:
+            velocities[idx] = velocity_slices[0]
+        elif y >= velocity_depths[-1]:
+            velocities[idx] = velocity_slices[-1]
+        else:
+            i = np.searchsorted(velocity_depths, y) - 1
+            pos_i, pos_ip1 = velocity_depths[i], velocity_depths[i + 1]
+            vel_i = velocity_slices[i]
+            vel_ip1 = velocity_slices[i + 1]
+            beta = (
+                np.log(np.abs(vel_ip1) + 1e-6) - np.log(np.abs(vel_i) + 1e-6)
+            ) / (pos_ip1 - pos_i)
+            alpha_val = vel_i / np.exp(beta * pos_i)
+            velocities[idx] = alpha_val * np.exp(beta * y)
+    return velocities
