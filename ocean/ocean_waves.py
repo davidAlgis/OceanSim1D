@@ -4,11 +4,21 @@ from ocean.init_helper import OceanInitConfig
 
 
 class OceanWaves:
-    SEA_STATE_BOUNDARIES = [(-1.0, 0.18), (-2.0, 0.19), (-5.0, 0.23),
-                            (-9.0, 0.4), (-15.0, 0.6), (-20.0, 1.0),
-                            (-47.0, 2.5), (-75.0, 3.0), (-125.0, 4.5),
-                            (-175.0, 6.0), (-218.0, 9.0), (-241.0, 12.0),
-                            (-255.0, 15.0)]
+    SEA_STATE_BOUNDARIES = [
+        (-1.0, 0.18),
+        (-2.0, 0.19),
+        (-5.0, 0.23),
+        (-9.0, 0.4),
+        (-15.0, 0.6),
+        (-20.0, 1.0),
+        (-47.0, 2.5),
+        (-75.0, 3.0),
+        (-125.0, 4.5),
+        (-175.0, 6.0),
+        (-218.0, 9.0),
+        (-241.0, 12.0),
+        (-255.0, 15.0),
+    ]
 
     def __init__(self, config):
         """
@@ -31,8 +41,9 @@ class OceanWaves:
         self.depth_boundaries = self.get_depth_boundaries(self.sea_state)
         # Logarithmic grid for velocity interpolation based on dynamic depth boundaries.
         y_min, y_max = self.depth_boundaries
-        self.velocity_depths = self.compute_log_grid(y_min, y_max,
-                                                     self.interpolation_degree)
+        self.velocity_depths = self.compute_log_grid(
+            y_min, y_max, self.interpolation_degree
+        )
 
         # Master grid for merging cascade contributions.
         self.x = np.linspace(0, self.master_L, self.N)
@@ -40,17 +51,44 @@ class OceanWaves:
         # Create cascades with default settings.
         self.cascades = []
         self.cascades.append(
-            WavesCascade(self.N, 256, self.wind_speed, self.fetch,
-                         self.water_depth, 0, (12 * np.pi) / 16,
-                         self.interpolation_degree, self.velocity_depths))
+            WavesCascade(
+                self.N,
+                256,
+                self.wind_speed,
+                self.fetch,
+                self.water_depth,
+                0,
+                (12 * np.pi) / 16,
+                self.interpolation_degree,
+                self.velocity_depths,
+            )
+        )
         self.cascades.append(
-            WavesCascade(self.N, 16, self.wind_speed, self.fetch,
-                         self.water_depth, (12 * np.pi) / 16, (12 * np.pi) / 4,
-                         self.interpolation_degree, self.velocity_depths))
+            WavesCascade(
+                self.N,
+                16,
+                self.wind_speed,
+                self.fetch,
+                self.water_depth,
+                (12 * np.pi) / 16,
+                (12 * np.pi) / 4,
+                self.interpolation_degree,
+                self.velocity_depths,
+            )
+        )
         self.cascades.append(
-            WavesCascade(self.N, 4, self.wind_speed, self.fetch,
-                         self.water_depth, (12 * np.pi) / 4, np.inf,
-                         self.interpolation_degree, self.velocity_depths))
+            WavesCascade(
+                self.N,
+                4,
+                self.wind_speed,
+                self.fetch,
+                self.water_depth,
+                (12 * np.pi) / 4,
+                np.inf,
+                self.interpolation_degree,
+                self.velocity_depths,
+            )
+        )
 
         # Immediately calculate the initial spectrum for each cascade.
         self.recalculate_initial_parameters()
@@ -61,15 +99,15 @@ class OceanWaves:
         Compute the sea state from wind speed.
         Formula: sea_state = 1.126 * wind_speed^(2/3)
         """
-        return 1.126 * (wind_speed**(2 / 3))
+        return 1.126 * (wind_speed ** (2 / 3))
 
     def get_depth_boundaries(self, sea_state):
         """
         Determine depth boundaries based on the computed sea state.
-        
+
         Parameters:
             sea_state (float): The computed sea state.
-        
+
         Returns:
             (float, float): The corresponding depth boundaries (y_min, y_max).
         """
@@ -92,7 +130,7 @@ class OceanWaves:
         interpolation_step = grid_size / (interpolation_degree - 2)
 
         beta = 1e-4
-        alpha = -y_min / (2.0 * np.log(beta * abs(y_min)**2 + 1))
+        alpha = -y_min / (2.0 * np.log(beta * abs(y_min) ** 2 + 1))
 
         grid = np.zeros(interpolation_degree)
         y = y_max
@@ -100,7 +138,7 @@ class OceanWaves:
 
         for i in range(1, interpolation_degree):
             sign = 1.0 if y >= 0 else -1.0
-            grid[i] = sign * alpha * np.log(beta * abs(y)**2 + 1)
+            grid[i] = sign * alpha * np.log(beta * abs(y) ** 2 + 1)
             y -= interpolation_step
 
         return grid
@@ -139,16 +177,16 @@ class OceanWaves:
     def get_real_water_height(self, X, N_iter=4):
         """
         Retrieve the "real" water height at the given world positions X.
-        
-        Inspired by your CUDA getWaterHeight kernel, the ocean surface is defined 
+
+        Inspired by your CUDA getWaterHeight kernel, the ocean surface is defined
         parametrically as (x + D(x,t), h(x,t)). We iteratively correct the queried
-        horizontal positions by subtracting the total horizontal displacement from all 
+        horizontal positions by subtracting the total horizontal displacement from all
         cascades.
-        
+
         Parameters:
             X (np.ndarray): Array of master grid positions (world coordinates).
             N_iter (int): Number of iterations.
-            
+
         Returns:
             h_real (np.ndarray): The water height at positions X.
         """
@@ -157,8 +195,9 @@ class OceanWaves:
             total_disp = np.zeros_like(x_guess)
             for cascade in self.cascades:
                 x_cascade = (x_guess / self.master_L) * cascade.L
-                disp_cascade = np.interp(x_cascade, cascade.x,
-                                         cascade.displacement)
+                disp_cascade = np.interp(
+                    x_cascade, cascade.x, cascade.displacement
+                )
                 total_disp += disp_cascade
             x_guess = X - total_disp
 
@@ -172,11 +211,11 @@ class OceanWaves:
     def get_real_water_velocity(self, X, Y):
         """
         Retrieve the interpolated water velocity at given world positions (X, Y).
-        
+
         Parameters:
             X (np.ndarray): Array of horizontal world positions.
             Y (np.ndarray): Array of vertical positions (depths in meters).
-            
+
         Returns:
             np.ndarray: Array of shape (N, 2) containing (vx, vy) for each (X, Y).
         """
@@ -198,12 +237,16 @@ class OceanWaves:
 
                 for i in range(self.interpolation_degree):
                     # Interpolate velocity for each cascade slice
-                    v_interp = np.array([
-                        np.interp(x_scaled, cascade.x, cascade.velocity[i, :,
-                                                                        0]),
-                        np.interp(x_scaled, cascade.x, cascade.velocity[i, :,
-                                                                        1])
-                    ])
+                    v_interp = np.array(
+                        [
+                            np.interp(
+                                x_scaled, cascade.x, cascade.velocity[i, :, 0]
+                            ),
+                            np.interp(
+                                x_scaled, cascade.x, cascade.velocity[i, :, 1]
+                            ),
+                        ]
+                    )
                     velocity_slices[i] += v_interp  # Sum cascades
 
             # Perform **exponential interpolation** in depth
@@ -222,8 +265,10 @@ class OceanWaves:
                 vel_i, vel_ip1 = velocity_slices[i], velocity_slices[i + 1]
 
                 # **Exponential interpolation**
-                beta = (np.log(np.abs(vel_ip1) + 1e-6) -
-                        np.log(np.abs(vel_i) + 1e-6)) / (pos_ip1 - pos_i)
+                beta = (
+                    np.log(np.abs(vel_ip1) + 1e-6)
+                    - np.log(np.abs(vel_i) + 1e-6)
+                ) / (pos_ip1 - pos_i)
                 alpha = vel_i / np.exp(beta * pos_i)
 
                 velocities[idx] = alpha * np.exp(beta * y)

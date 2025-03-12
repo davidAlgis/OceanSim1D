@@ -1,7 +1,8 @@
 class OceanInitConfig:
 
-    def __init__(self, N, master_L, wind_speed, fetch, water_depth,
-                 interpolation_degree):
+    def __init__(
+        self, N, master_L, wind_speed, fetch, water_depth, interpolation_degree
+    ):
         self.N = N
         self.master_L = master_L
         self.wind_speed = wind_speed
