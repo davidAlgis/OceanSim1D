@@ -111,6 +111,8 @@ class WavesCascade:
             amplitude = np.sqrt(
                 2 * S_omega * omega_deriv / k_abs * (self.delta_k**2)
             )
+            # Add a seed to make it deterministic
+            np.random.seed(42)
             xi = np.random.normal(0, 1) + 1j * np.random.normal(0, 1)
             self.h0[i] = xi * amplitude
 
