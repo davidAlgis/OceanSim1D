@@ -22,10 +22,13 @@ class OceanWaves:
 
     def __init__(self, config):
         """
-        Global ocean simulation which stores cascades and common simulation parameters.
+                        Global ocean simulation which stores cascades and
+                common simulation parameters.
+                        Parameters:
+                            config (OceanInitConfig): Contains parameters for
+        the simulation.
 
-        Parameters:
-            config (OceanInitConfig): Contains parameters for the simulation.
+
         """
         self.N = config.N
         self.master_L = config.master_L
@@ -39,7 +42,8 @@ class OceanWaves:
 
         # Get depth boundaries from sea state.
         self.depth_boundaries = self.get_depth_boundaries(self.sea_state)
-        # Logarithmic grid for velocity interpolation based on dynamic depth boundaries.
+        # Logarithmic grid for velocity interpolation based on dynamic depth
+        # boundaries.
         y_min, y_max = self.depth_boundaries
         self.velocity_depths = self.compute_log_grid(
             y_min, y_max, self.interpolation_degree
@@ -167,9 +171,10 @@ class OceanWaves:
 
     def update(self, t):
         """
-        Update the ocean simulation in three parts (mimicking the CUDA code structure):
-          1. Update the time dependency in each cascade.
+        Update the ocean simulation in three parts (mimicking the CUDA code
+          structure): 1. Update the time dependency in each cascade.
           2. Apply the inverse FFT in each cascade.
+
         """
         self.update_time_dependency(t)
         self.apply_ifft()
@@ -214,19 +219,21 @@ def static_get_real_water_height(
     X, master_L, L_list, x_list, displacement_list, water_height_list, N_iter=4
 ):
     """
-    Compute the "real" water height at positions X.
+        Compute the "real" water height at positions X.
 
-    Parameters:
-        X (np.ndarray): 1D array of master grid positions.
-        master_L (float): The master domain length.
-        L_list (list of float): List of cascade domain lengths.
-        x_list (list of np.ndarray): List of 1D arrays with cascade grid positions.
-        displacement_list (list of np.ndarray): List of 1D arrays with cascade displacements.
-        water_height_list (list of np.ndarray): List of 1D arrays with cascade water heights.
-        N_iter (int): Number of correction iterations (default: 4).
+        Parameters:
+            X (np.ndarray): 1D array of master grid positions.
+            master_L (float): The master domain length.
+            L_list (list of float): List of cascade domain lengths.
+            x_list (list of np.ndarray): List of 1D arrays with cascade grid
+            positions. displacement_list (list of np.ndarray): List of 1D
+            arrays with cascade displacements. water_height_list (list of
+            np.ndarray): List of 1D arrays with cascade water heights. N_iter
+    (int): Number of correction iterations (default: 4).
+        Returns:
+            np.ndarray: The computed water height at each position in X.
 
-    Returns:
-        np.ndarray: The computed water height at each position in X.
+
     """
     x_guess = X.copy()
     for _ in range(N_iter):
@@ -257,23 +264,25 @@ def static_get_real_water_velocity(
     interpolation_degree,
 ):
     """
-    Compute the water velocity at given world positions (X, Y) using the same procedure as the non-static method.
+        Compute the water velocity at given world positions (X, Y) using the
+    same procedure as the non-static method.
+        Parameters:
+            X (np.ndarray): 1D array of horizontal master grid positions.
+            Y (np.ndarray): 1D array of vertical positions (depths).
+            master_L (float): The master domain length.
+            L_list (list of float): List of cascade domain lengths.
+            x_list (list of np.ndarray): List of 1D arrays with cascade grid
+            positions. displacement_list (list of np.ndarray): List of 1D
+            arrays with cascade displacements. water_height_list (list of
+            np.ndarray): List of 1D arrays with cascade water heights.
+                velocity_list (list of np.ndarray): List of 3D arrays with
+            cascade velocity fields (each of shape (interpolation_degree, N,
+            2)). velocity_depths (np.ndarray): 1D array of logarithmically
+    spaced depth values. interpolation_degree (int): Number of depth slices.
+        Returns:
+            np.ndarray: Array of shape (len(X), 2) containing (vx, vy) for each
+        query position.
 
-    Parameters:
-        X (np.ndarray): 1D array of horizontal master grid positions.
-        Y (np.ndarray): 1D array of vertical positions (depths).
-        master_L (float): The master domain length.
-        L_list (list of float): List of cascade domain lengths.
-        x_list (list of np.ndarray): List of 1D arrays with cascade grid positions.
-        displacement_list (list of np.ndarray): List of 1D arrays with cascade displacements.
-        water_height_list (list of np.ndarray): List of 1D arrays with cascade water heights.
-        velocity_list (list of np.ndarray): List of 3D arrays with cascade velocity fields
-            (each of shape (interpolation_degree, N, 2)).
-        velocity_depths (np.ndarray): 1D array of logarithmically spaced depth values.
-        interpolation_degree (int): Number of depth slices.
-
-    Returns:
-        np.ndarray: Array of shape (len(X), 2) containing (vx, vy) for each query position.
     """
     # First, compute the water height at each X.
     h_vals = static_get_real_water_height(

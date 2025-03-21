@@ -16,15 +16,18 @@ class OceanDrawer:
         interpolation_degree,
     ):
         """
-        Initialize the drawer with the given ocean simulation instance and display parameters.
-
-        Parameters:
-            ocean_instance: An instance of OceanWaves (from oceanwaves.py).
-            domain_length (float): The master domain length in meters.
-            domain_length_to_view (float): The simulation length (in meters) to display on screen.
-            draw_points (int): Number of points on the drawing grid (can be higher than simulation grid).
-            time_scale (float): Time scaling factor (unused here, fixed dt=0.016).
-            interpolation_degree (int): Number of depth levels for velocity computation.
+                Initialize the drawer with the given ocean simulation instance
+        and display parameters.
+                Parameters:
+                    ocean_instance: An instance of OceanWaves (from
+                    oceanwaves.py). domain_length (float): The master domain
+                    length in meters. domain_length_to_view (float): The
+                    simulation length (in meters) to display on screen.
+                    draw_points (int): Number of points on the drawing grid
+                    (can be higher than simulation grid). time_scale (float):
+                Time scaling factor (unused here, fixed dt=0.016).
+                interpolation_degree (int): Number of depth levels for velocity
+        computation.
         """
         self.ocean = ocean_instance
         self.domain_length = domain_length
@@ -92,7 +95,8 @@ class OceanDrawer:
         Draw velocity vectors at pre-defined grid points.
 
         Parameters:
-            velocities (np.ndarray): Array of shape (Nx, Ny, 2) storing (vx, vy).
+            velocities (np.ndarray): Array of shape (Nx, Ny, 2) storing (vx,
+        vy).
         """
         arrow_color = (255, 0, 0)  # Red for velocity arrows
         scale_factor = 5  # Scale velocity for visibility
@@ -113,8 +117,9 @@ class OceanDrawer:
 
     def run(self):
         """
-        Run the main drawing loop. The simulation is updated in real time with dt=0.016 s.
-        A grid, water surface, and velocity vectors are drawn each frame.
+        Run the main drawing loop. The simulation is updated in real time with
+        dt=0.016 s. A grid, water surface, and velocity vectors are drawn each
+        frame.
         """
         t = 0.0
         dt = 0.016  # fixed time increment (approx 60 FPS)

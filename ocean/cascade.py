@@ -25,9 +25,10 @@ class WavesCascade:
             fetch (float): Fetch (m).
             water_depth (float): Water depth (assumed deep).
             kmin (float): Minimum absolute wave number for this cascade.
-            kmax (float): Maximum absolute wave number for this cascade (use np.inf for no upper cutoff).
-            interpolation_degree (int): Number of depth levels for velocity computation.
-            log_grid (np.ndarray): Logarithmic depth grid.
+            kmax (float): Maximum absolute wave number for this cascade (use
+            np.inf for no upper cutoff). interpolation_degree (int): Number of
+            depth levels for velocity computation. log_grid (np.ndarray):
+        Logarithmic depth grid.
         """
         self.N = N
         self.L = L
@@ -72,7 +73,8 @@ class WavesCascade:
     def initialize_spectrum(self):
         """
         Compute the initial Fourier amplitude h0(k) using the JONSWAP spectrum,
-        but only for modes with |k| in [kmin, kmax). Also compute the conjugate.
+        but only for modes with |k| in [kmin, kmax). Also compute the
+        conjugate.
         """
         N = self.N
         L = self.L
@@ -170,7 +172,8 @@ class WavesCascade:
 
     def apply_ifft(self):
         """
-        Apply the inverse FFT (with continuous synthesis correction) to recover real–space fields.
+        Apply the inverse FFT (with continuous synthesis correction) to recover
+        real–space fields.
         """
         self.water_height = np.real(np.fft.ifft(self.h_tilde) * self.N)
         self.displacement = np.real(
