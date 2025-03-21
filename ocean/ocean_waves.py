@@ -22,13 +22,8 @@ class OceanWaves:
 
     def __init__(self, config):
         """
-                        Global ocean simulation which stores cascades and
-                common simulation parameters.
-                        Parameters:
-                            config (OceanInitConfig): Contains parameters for
-        the simulation.
-
-
+        Global ocean simulation which stores cascades and common simulation
+        parameters.
         """
         self.N = config.N
         self.master_L = config.master_L
@@ -52,47 +47,47 @@ class OceanWaves:
         # Master grid for merging cascade contributions.
         self.x = np.linspace(0, self.master_L, self.N)
 
+        # Define arrays for cascade parameters
+        cascade_n_values = [256, 16, 4]
+        cascade_freq_starts = [0, (12 * np.pi) / 16, (12 * np.pi) / 4]
+        cascade_freq_ends = [(12 * np.pi) / 16, (12 * np.pi) / 4, np.inf]
+
         # Create cascades with default settings.
-        self.cascades = []
-        self.cascades.append(
+        self.cascades = [
             WavesCascade(
                 self.N,
-                256,
+                cascade_n_values[0],
                 self.wind_speed,
                 self.fetch,
                 self.water_depth,
-                0,
-                (12 * np.pi) / 16,
+                cascade_freq_starts[0],
+                cascade_freq_ends[0],
                 self.interpolation_degree,
                 self.velocity_depths,
-            )
-        )
-        self.cascades.append(
+            ),
             WavesCascade(
                 self.N,
-                16,
+                cascade_n_values[1],
                 self.wind_speed,
                 self.fetch,
                 self.water_depth,
-                (12 * np.pi) / 16,
-                (12 * np.pi) / 4,
+                cascade_freq_starts[1],
+                cascade_freq_ends[1],
                 self.interpolation_degree,
                 self.velocity_depths,
-            )
-        )
-        self.cascades.append(
+            ),
             WavesCascade(
                 self.N,
-                4,
+                cascade_n_values[2],
                 self.wind_speed,
                 self.fetch,
                 self.water_depth,
-                (12 * np.pi) / 4,
-                np.inf,
+                cascade_freq_starts[2],
+                cascade_freq_ends[2],
                 self.interpolation_degree,
                 self.velocity_depths,
-            )
-        )
+            ),
+        ]
 
         # Immediately calculate the initial spectrum for each cascade.
         self.recalculate_initial_parameters()
