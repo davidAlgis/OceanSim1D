@@ -72,7 +72,7 @@ def main():
     drawer = OceanDrawer(
         ocean_instance,
         args.length,
-        domain_to_view,
+        args.length,
         100 * args.n,
         args.time_scale,
         interpolation_degree,
