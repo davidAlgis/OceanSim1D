@@ -1,9 +1,10 @@
 import numpy as np
-from ocean.cascade import WavesCascade
+from ocean.cascade import WavesCascade  # We still use its Fourier methods.
 from ocean.init_helper import OceanInitConfig
 
 
 class OceanWaves:
+    # (The sea state boundaries from the original code.)
     SEA_STATE_BOUNDARIES = [
         (-1.0, 0.18),
         (-2.0, 0.19),
@@ -22,8 +23,8 @@ class OceanWaves:
 
     def __init__(self, config):
         """
-        Global ocean simulation which stores cascades and common simulation
-        parameters.
+        Initialize the ocean simulation without cascades.
+        Instead of several cascades, we create one simulation instance.
         """
         self.N = config.N
         self.master_L = config.master_L
@@ -34,63 +35,37 @@ class OceanWaves:
 
         # Compute sea state from wind speed.
         self.sea_state = self.wind_speed_to_sea_state(self.wind_speed)
-
         # Get depth boundaries from sea state.
         self.depth_boundaries = self.get_depth_boundaries(self.sea_state)
-        # Logarithmic grid for velocity interpolation based on dynamic depth
-        # boundaries.
         y_min, y_max = self.depth_boundaries
+
+        # Logarithmic grid for velocity interpolation.
         self.velocity_depths = self.compute_log_grid(
             y_min, y_max, self.interpolation_degree
         )
 
-        # Master grid for merging cascade contributions.
+        # Master grid.
         self.x = np.linspace(0, self.master_L, self.N)
 
-        # Define arrays for cascade parameters
-        cascade_n_values = [256, 16, 4]
-        cascade_freq_starts = [0, (12 * np.pi) / 16, (12 * np.pi) / 4]
-        cascade_freq_ends = [(12 * np.pi) / 16, (12 * np.pi) / 4, np.inf]
+        # Instead of multiple cascades, we use a single simulation.
+        # Choose kmin and kmax to include all wave modes (except very low k).
+        self.kmin = 1e-6
+        self.kmax = np.inf
 
-        # Create cascades with default settings.
-        self.cascades = [
-            WavesCascade(
-                self.N,
-                cascade_n_values[0],
-                self.wind_speed,
-                self.fetch,
-                self.water_depth,
-                cascade_freq_starts[0],
-                cascade_freq_ends[0],
-                self.interpolation_degree,
-                self.velocity_depths,
-            ),
-            WavesCascade(
-                self.N,
-                cascade_n_values[1],
-                self.wind_speed,
-                self.fetch,
-                self.water_depth,
-                cascade_freq_starts[1],
-                cascade_freq_ends[1],
-                self.interpolation_degree,
-                self.velocity_depths,
-            ),
-            WavesCascade(
-                self.N,
-                cascade_n_values[2],
-                self.wind_speed,
-                self.fetch,
-                self.water_depth,
-                cascade_freq_starts[2],
-                cascade_freq_ends[2],
-                self.interpolation_degree,
-                self.velocity_depths,
-            ),
-        ]
+        self.sim = WavesCascade(
+            self.N,
+            self.master_L,
+            self.wind_speed,
+            self.fetch,
+            self.water_depth,
+            self.kmin,
+            self.kmax,
+            self.interpolation_degree,
+            self.velocity_depths,
+        )
 
-        # Immediately calculate the initial spectrum for each cascade.
-        self.recalculate_initial_parameters()
+        # Initialize the spectrum.
+        self.sim.initialize_spectrum()
 
     @staticmethod
     def wind_speed_to_sea_state(wind_speed):
@@ -103,12 +78,6 @@ class OceanWaves:
     def get_depth_boundaries(self, sea_state):
         """
         Determine depth boundaries based on the computed sea state.
-
-        Parameters:
-            sea_state (float): The computed sea state.
-
-        Returns:
-            (float, float): The corresponding depth boundaries (y_min, y_max).
         """
         index = min(int(round(sea_state)), len(self.SEA_STATE_BOUNDARIES) - 1)
         return self.SEA_STATE_BOUNDARIES[index]
@@ -116,208 +85,88 @@ class OceanWaves:
     def compute_log_grid(self, y_min, y_max, interpolation_degree):
         """
         Generate a logarithmic depth grid for velocity computation.
-
-        Parameters:
-            y_min (float): Minimum depth (negative, at ocean bottom).
-            y_max (float): Maximum depth (0, at ocean surface).
-            interpolation_degree (int): Number of depth levels.
-
-        Returns:
-            np.ndarray: Array of logarithmically spaced depth values.
         """
         grid_size = abs(y_max - y_min)
         interpolation_step = grid_size / (interpolation_degree - 2)
-
         beta = 1e-4
         alpha = -y_min / (2.0 * np.log(beta * abs(y_min) ** 2 + 1))
-
         grid = np.zeros(interpolation_degree)
         y = y_max
         grid[0] = y
-
         for i in range(1, interpolation_degree):
             sign = 1.0 if y >= 0 else -1.0
             grid[i] = sign * alpha * np.log(beta * abs(y) ** 2 + 1)
             y -= interpolation_step
-
         return grid
-
-    def recalculate_initial_parameters(self):
-        """
-        (Initialization step) For each cascade, calculate h₀ and its conjugate.
-        Mimics the CUDA function that initializes the spectrum.
-        """
-        for cascade in self.cascades:
-            cascade.initialize_spectrum()
 
     def update_time_dependency(self, t):
         """
-        Update the time-dependent part of the simulation in each cascade.
+        Update time-dependent Fourier coefficients.
         """
-        for cascade in self.cascades:
-            cascade.update_time_dependency(t)
+        self.sim.update_time_dependency(t)
 
     def apply_ifft(self):
         """
-        For each cascade, apply the inverse FFT to obtain real-space fields.
+        Recover real–space fields using the inverse FFT.
         """
-        for cascade in self.cascades:
-            cascade.apply_ifft()
+        self.sim.apply_ifft()
 
     def update(self, t):
         """
-        Update the ocean simulation in three parts (mimicking the CUDA code
-          structure): 1. Update the time dependency in each cascade.
-          2. Apply the inverse FFT in each cascade.
-
+        Update simulation: time dependency and inverse FFT.
         """
         self.update_time_dependency(t)
         self.apply_ifft()
 
     def get_real_water_height(self, X, N_iter=4):
-        # Extract cascade attributes.
-        L_list = [cascade.L for cascade in self.cascades]
-        x_list = [cascade.x for cascade in self.cascades]
-        displacement_list = [cascade.displacement for cascade in self.cascades]
-        water_height_list = [cascade.water_height for cascade in self.cascades]
-        return static_get_real_water_height(
-            X,
-            self.master_L,
-            L_list,
-            x_list,
-            displacement_list,
-            water_height_list,
-            N_iter,
-        )
+        """
+        Compute the "real" water height at positions X.
+        An iterative correction is applied.
+        """
+        x_guess = X.copy()
+        for _ in range(N_iter):
+            # Interpolate displacement from the single simulation.
+            total_disp = np.interp(x_guess, self.sim.x, self.sim.displacement)
+            x_guess = X - total_disp
+        total_wh = np.interp(x_guess, self.sim.x, self.sim.water_height)
+        return total_wh
 
     def get_real_water_velocity(self, X, Y):
-        L_list = [cascade.L for cascade in self.cascades]
-        x_list = [cascade.x for cascade in self.cascades]
-        displacement_list = [cascade.displacement for cascade in self.cascades]
-        water_height_list = [cascade.water_height for cascade in self.cascades]
-        velocity_list = [cascade.velocity for cascade in self.cascades]
-        return static_get_real_water_velocity(
-            X,
-            Y,
-            self.master_L,
-            L_list,
-            x_list,
-            displacement_list,
-            water_height_list,
-            velocity_list,
-            self.velocity_depths,
-            self.interpolation_degree,
-        )
+        """
+        Compute the water velocity (vx, vy) at positions (X, Y) using the
+        velocity fields.
+        """
+        h_vals = self.get_real_water_height(X, N_iter=4)
+        velocities = np.zeros((len(X), 2))
+        for idx, (x, y) in enumerate(zip(X, Y)):
+            # If above the water surface, velocity remains zero.
+            if y > h_vals[idx]:
+                continue
+            # Interpolate velocity along x for each depth slice.
+            velocity_slices = np.zeros((self.interpolation_degree, 2))
+            for i in range(self.interpolation_degree):
+                vx = np.interp(x, self.sim.x, self.sim.velocity[i, :, 0])
+                vy = np.interp(x, self.sim.x, self.sim.velocity[i, :, 1])
+                velocity_slices[i] = [vx, vy]
 
-
-def static_get_real_water_height(
-    X, master_L, L_list, x_list, displacement_list, water_height_list, N_iter=4
-):
-    """
-        Compute the "real" water height at positions X.
-
-        Parameters:
-            X (np.ndarray): 1D array of master grid positions.
-            master_L (float): The master domain length.
-            L_list (list of float): List of cascade domain lengths.
-            x_list (list of np.ndarray): List of 1D arrays with cascade grid
-            positions. displacement_list (list of np.ndarray): List of 1D
-            arrays with cascade displacements. water_height_list (list of
-            np.ndarray): List of 1D arrays with cascade water heights. N_iter
-    (int): Number of correction iterations (default: 4).
-        Returns:
-            np.ndarray: The computed water height at each position in X.
-
-
-    """
-    x_guess = X.copy()
-    for _ in range(N_iter):
-        total_disp = np.zeros_like(x_guess)
-        for L, x_grid, disp in zip(L_list, x_list, displacement_list):
-            # Map master grid positions into cascade coordinates.
-            x_cascade = (x_guess / master_L) * L
-            total_disp += np.interp(x_cascade, x_grid, disp)
-        x_guess = X - total_disp
-
-    total_wh = np.zeros_like(x_guess)
-    for L, x_grid, wh in zip(L_list, x_list, water_height_list):
-        x_cascade = (x_guess / master_L) * L
-        total_wh += np.interp(x_cascade, x_grid, wh)
-    return total_wh
-
-
-def static_get_real_water_velocity(
-    X,
-    Y,
-    master_L,
-    L_list,
-    x_list,
-    displacement_list,
-    water_height_list,
-    velocity_list,
-    velocity_depths,
-    interpolation_degree,
-):
-    """
-        Compute the water velocity at given world positions (X, Y) using the
-    same procedure as the non-static method.
-        Parameters:
-            X (np.ndarray): 1D array of horizontal master grid positions.
-            Y (np.ndarray): 1D array of vertical positions (depths).
-            master_L (float): The master domain length.
-            L_list (list of float): List of cascade domain lengths.
-            x_list (list of np.ndarray): List of 1D arrays with cascade grid
-            positions. displacement_list (list of np.ndarray): List of 1D
-            arrays with cascade displacements. water_height_list (list of
-            np.ndarray): List of 1D arrays with cascade water heights.
-                velocity_list (list of np.ndarray): List of 3D arrays with
-            cascade velocity fields (each of shape (interpolation_degree, N,
-            2)). velocity_depths (np.ndarray): 1D array of logarithmically
-    spaced depth values. interpolation_degree (int): Number of depth slices.
-        Returns:
-            np.ndarray: Array of shape (len(X), 2) containing (vx, vy) for each
-        query position.
-
-    """
-    # First, compute the water height at each X.
-    h_vals = static_get_real_water_height(
-        X,
-        master_L,
-        L_list,
-        x_list,
-        displacement_list,
-        water_height_list,
-        N_iter=4,
-    )
-
-    velocities = np.zeros((len(X), 2))
-    for idx, (x, y) in enumerate(zip(X, Y)):
-        # If above the water surface, velocity remains zero.
-        if y > h_vals[idx]:
-            continue
-
-        # Sum velocity contributions across cascades.
-        velocity_slices = np.zeros((interpolation_degree, 2))
-        for L, x_grid, vel_field in zip(L_list, x_list, velocity_list):
-            x_scaled = (x / master_L) * L
-            for i in range(interpolation_degree):
-                v_interp0 = np.interp(x_scaled, x_grid, vel_field[i, :, 0])
-                v_interp1 = np.interp(x_scaled, x_grid, vel_field[i, :, 1])
-                velocity_slices[i] += np.array([v_interp0, v_interp1])
-
-        # Perform exponential interpolation along depth.
-        if y <= velocity_depths[0]:
-            velocities[idx] = velocity_slices[0]
-        elif y >= velocity_depths[-1]:
-            velocities[idx] = velocity_slices[-1]
-        else:
-            i = np.searchsorted(velocity_depths, y) - 1
-            pos_i, pos_ip1 = velocity_depths[i], velocity_depths[i + 1]
-            vel_i = velocity_slices[i]
-            vel_ip1 = velocity_slices[i + 1]
-            beta = (
-                np.log(np.abs(vel_ip1) + 1e-6) - np.log(np.abs(vel_i) + 1e-6)
-            ) / (pos_ip1 - pos_i)
-            alpha_val = vel_i / np.exp(beta * pos_i)
-            velocities[idx] = alpha_val * np.exp(beta * y)
-    return velocities
+            # Depth interpolation.
+            if y <= self.velocity_depths[0]:
+                velocities[idx] = velocity_slices[0]
+            elif y >= self.velocity_depths[-1]:
+                velocities[idx] = velocity_slices[-1]
+            else:
+                i = np.searchsorted(self.velocity_depths, y) - 1
+                pos_i, pos_ip1 = (
+                    self.velocity_depths[i],
+                    self.velocity_depths[i + 1],
+                )
+                vel_i = velocity_slices[i]
+                vel_ip1 = velocity_slices[i + 1]
+                # Exponential interpolation along depth.
+                beta = (
+                    np.log(np.abs(vel_ip1) + 1e-6)
+                    - np.log(np.abs(vel_i) + 1e-6)
+                ) / (pos_ip1 - pos_i)
+                alpha_val = vel_i / np.exp(beta * pos_i)
+                velocities[idx] = alpha_val * np.exp(beta * y)
+        return velocities
