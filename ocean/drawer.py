@@ -47,7 +47,7 @@ class OceanDrawer:
         self.clock = pygame.time.Clock()
 
         # Create a fixed master grid for drawing (using higher resolution).
-        self.X_world = np.linspace(0, domain_length, draw_points)
+        self.X_world = np.linspace(0, self.domain_length_to_view, draw_points)
 
         # Define velocity grid: 1m spacing horizontally, 0.25m vertically
         self.velocity_grid_x = np.arange(0, self.domain_length_to_view, 1.0)

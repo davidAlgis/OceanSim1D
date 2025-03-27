@@ -214,7 +214,7 @@ def static_get_real_water_height(
     X, master_L, L_list, x_list, displacement_list, water_height_list, N_iter=4
 ):
     """
-        Compute the "real" water height at positions X.
+        Compute the "real" water height at positions X with periodic wrapping.
 
         Parameters:
             X (np.ndarray): 1D array of master grid positions.
@@ -228,16 +228,19 @@ def static_get_real_water_height(
         Returns:
             np.ndarray: The computed water height at each position in X.
 
-
+    
     """
-    x_guess = X.copy()
+    # Wrap X to ensure periodic tiling.
+    X_mod = np.mod(X, master_L)
+    x_guess = X_mod.copy()
     for _ in range(N_iter):
         total_disp = np.zeros_like(x_guess)
         for L, x_grid, disp in zip(L_list, x_list, displacement_list):
-            # Map master grid positions into cascade coordinates.
+            # Map the periodic master grid positions into cascade coordinates.
             x_cascade = (x_guess / master_L) * L
             total_disp += np.interp(x_cascade, x_grid, disp)
-        x_guess = X - total_disp
+        # Subtract displacement and re-wrap to keep periodicity.
+        x_guess = np.mod(X - total_disp, master_L)
 
     total_wh = np.zeros_like(x_guess)
     for L, x_grid, wh in zip(L_list, x_list, water_height_list):
@@ -259,8 +262,8 @@ def static_get_real_water_velocity(
     interpolation_degree,
 ):
     """
-        Compute the water velocity at given world positions (X, Y) using the
-    same procedure as the non-static method.
+        Compute the water velocity at given world positions (X, Y) with
+    periodic tiling.
         Parameters:
             X (np.ndarray): 1D array of horizontal master grid positions.
             Y (np.ndarray): 1D array of vertical positions (depths).
@@ -270,16 +273,16 @@ def static_get_real_water_velocity(
             positions. displacement_list (list of np.ndarray): List of 1D
             arrays with cascade displacements. water_height_list (list of
             np.ndarray): List of 1D arrays with cascade water heights.
-                velocity_list (list of np.ndarray): List of 3D arrays with
-            cascade velocity fields (each of shape (interpolation_degree, N,
-            2)). velocity_depths (np.ndarray): 1D array of logarithmically
-    spaced depth values. interpolation_degree (int): Number of depth slices.
-        Returns:
+                                                velocity_list (list of
+            np.ndarray): List of 3D arrays with cascade velocity fields (each
+            of shape (interpolation_degree, N, 2)). velocity_depths
+    (np.ndarray): 1D array of logarithmically spaced depth values.
+        interpolation_degree (int): Number of depth slices. Returns:
             np.ndarray: Array of shape (len(X), 2) containing (vx, vy) for each
         query position.
-
+    
     """
-    # First, compute the water height at each X.
+    # First, compute the water height using the periodic height function.
     h_vals = static_get_real_water_height(
         X,
         master_L,
@@ -296,10 +299,10 @@ def static_get_real_water_velocity(
         if y > h_vals[idx]:
             continue
 
-        # Sum velocity contributions across cascades.
         velocity_slices = np.zeros((interpolation_degree, 2))
         for L, x_grid, vel_field in zip(L_list, x_list, velocity_list):
-            x_scaled = (x / master_L) * L
+            # Wrap the horizontal coordinate periodically before scaling.
+            x_scaled = ((x % master_L) / master_L) * L
             for i in range(interpolation_degree):
                 v_interp0 = np.interp(x_scaled, x_grid, vel_field[i, :, 0])
                 v_interp1 = np.interp(x_scaled, x_grid, vel_field[i, :, 1])
