@@ -20,7 +20,7 @@ def main():
         "-l",
         "--length",
         type=float,
-        default=100.0,
+        default=5.0,
         help="Domain length in meters (default: 100.0)",
     )
     parser.add_argument(
